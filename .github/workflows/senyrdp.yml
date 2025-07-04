@@ -1,21 +1,100 @@
-name: RDP
+name: RDP (Windows Runner)
 
-on: [workflow_dispatch]
+on:
+  workflow_dispatch:
 
 jobs:
-  build:
+  rdp:
     runs-on: windows-latest
-    steps:
-      - name: Download ngrok
-        run: |
-          Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-stable-windows-amd64.zip -OutFile ngrok.zip
-          Expand-Archive ngrok.zip
-          ./ngrok.exe authtoken 2zOGbnHPFZE31Yg2tXWrid9TTiW_5CweeR14Kx1ZEgQG9JNUJ
+    timeout-minutes: 360   # الجلسة تقدر تعيش لحد 6 ساعات (حد GitHub المجاني)
 
-      - name: Enable RDP
-        run: |
-          net user kamel123 MyStrong123 /add
-          net localgroup administrators kamel123 /add
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -Value 0
-          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-          ./ngrok.exe tcp 3389
+    steps:
+    #################################################################
+    # 1) ننزّل ngrok ونفعّل التوكِن
+    #################################################################
+    - name: Download & configure ngrok
+      env:
+        NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+      shell: pwsh
+      run: |
+        # تحميل وتفريغ ngrok
+        Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-stable-windows-amd64.zip `
+                         -OutFile ngrok.zip
+        Expand-Archive ngrok.zip -DestinationPath .
+        # تسجيل التوكِن
+        .\ngrok.exe authtoken $env:NGROK_AUTH_TOKEN
+
+    #################################################################
+    # 2) تفعيل الـ RDP + فتح الفايروول + تشغيل النفق في الخلفية
+    #################################################################
+    - name: Enable RDP, open firewall & start ngrok
+      id: rdp
+      shell: pwsh
+      run: |
+        #############################################################
+        # بيانات الدخول (عدّل لو حابب)
+        #############################################################
+        $user     = 'kamel123'
+        $password = 'MyStrong123'
+
+        #############################################################
+        # أ) إنشاء مستخدم أدمن
+        #############################################################
+        net user $user $password /add
+        net localgroup administrators $user /add
+
+        #############################################################
+        # ب) تفعيل بروتوكول الـ RDP + فتح الفايروول
+        #############################################################
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
+                         -Name 'fDenyTSConnections' -Value 0
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+
+        #############################################################
+        # ج) تشغيل ngrok كنفق TCP على البورت 3389 (خلفية)
+        #############################################################
+        Start-Process .\ngrok.exe -ArgumentList "tcp 3389" -WindowStyle Hidden
+
+        #############################################################
+        # د) ننتظر لحد ما الـ API يبقى جاهز ونطبع رابط الـ Tunnel
+        #############################################################
+        $maxTries   = 30  # ثواني انتظار (≈ 30 ثانية)
+        $tunnelUrl  = $null
+
+        for ($i = 1; $i -le $maxTries; $i++) {
+          try {
+            $json = Invoke-RestMethod -Uri http://127.0.0.1:4040/api/tunnels
+            if ($json.tunnels -and $json.tunnels[0].public_url) {
+              $tunnelUrl = $json.tunnels[0].public_url
+              break
+            }
+          } catch {
+            # API لسه مش جاهز
+          }
+          Start-Sleep -Seconds 1
+        }
+
+        if (-not $tunnelUrl) {
+          Write-Error "ngrok tunnel did not start in allotted time."
+          Exit 1
+        }
+
+        #############################################################
+        # هـ) نطبع الرابط بشكل واضح في اللوج ونصدّره كـ Output
+        #############################################################
+        "🎉🔗 RDP URL: $tunnelUrl" | Write-Host
+        echo "::set-output name=url::$tunnelUrl"
+
+    #################################################################
+    # 3) رسالة ختامية مختصرة
+    #################################################################
+    - name: Finished
+      if: success()
+      run: |
+        Write-Host ""
+        Write-Host "✅  Everything is ready. Copy the RDP URL above into"
+        Write-Host "   Remote Desktop (mstsc) using the format:"
+        Write-Host "       <host>:<port>"
+        Write-Host ""
+        Write-Host "   Username : kamel123"
+        Write-Host "   Password : MyStrong123"
