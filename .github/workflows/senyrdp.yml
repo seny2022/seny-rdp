@@ -12,10 +12,17 @@ jobs:
           Expand-Archive ngrok.zip -DestinationPath .
           ./ngrok.exe authtoken 2zOGbnHPFZE31Yg2tXWrid9TTiW_5CweeR14Kx1ZEgQG9JNUJ
 
-      - name: Enable RDP
+      - name: Enable RDP and start ngrok
         run: |
           net user kamel123 MyStrong123 /add
           net localgroup administrators kamel123 /add
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -Value 0
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-          ./ngrok.exe tcp 3389
+          Start-Process ./ngrok.exe -ArgumentList "tcp 3389"
+          Start-Sleep -Seconds 5
+          Invoke-RestMethod -Uri http://127.0.0.1:4040/api/tunnels > tunnels.json
+          $url = (Get-Content tunnels.json | ConvertFrom-Json).tunnels.public_url
+          echo "📡 Connect to your RDP via: $url"
+
+      - name: Done
+        run: echo "RDP session is ready ✅"
