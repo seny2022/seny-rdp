@@ -1,53 +1,21 @@
 name: RDP
 
-on:
-  workflow_dispatch:
+on: [workflow_dispatch]
 
 jobs:
   build:
     runs-on: windows-latest
-
     steps:
-    # 1) تنزيل ngrok وفكّه وتسجيل التوكن
-    - name: Download and configure ngrok
-      env:
-        NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
-      run: |
-        Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-stable-windows-amd64.zip -OutFile ngrok.zip
-        Expand-Archive ngrok.zip -DestinationPath .
-        $env:PATH += ";$PWD"          # احتياطي لو احتجت تشغّله من أي مسار
-        .\ngrok.exe authtoken $env:NGROK_AUTH_TOKEN
+      - name: Download ngrok
+        run: |
+          Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-stable-windows-amd64.zip -OutFile ngrok.zip
+          Expand-Archive ngrok.zip
+          ./ngrok.exe authtoken 2zOGbnHPFZE31Yg2tXWrid9TTiW_5CweeR14Kx1ZEgQG9JNUJ
 
-    # 2) تفعيل الـ RDP وتشغيل ngrok في الخلفية ثم طباعة الرابط
-    - name: Enable RDP and start ngrok tunnel
-      run: |
-        # إنشاء مستخدم أدمن
-        net user kamel123 MyStrong123 /add
-        net localgroup administrators kamel123 /add
-
-        # تفعيل الـ RDP وفتح الفايروول
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -Value 0
-        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-
-        # تشغيل ngrok كعملية خلفية
-        Start-Process .\ngrok.exe -ArgumentList "tcp 3389" -WindowStyle Hidden
-
-        # انتظار ngrok يجهّز واسترجاع رابط الـ Tunnel
-        $maxRetries = 20   # حوالي 20 ثانية
-        for ($i = 0; $i -lt $maxRetries; $i++) {
-          try {
-            $tunnelData = Invoke-RestMethod -Uri http://127.0.0.1:4040/api/tunnels
-            if ($tunnelData.tunnels -and $tunnelData.tunnels[0].public_url) {
-              $url = $tunnelData.tunnels[0].public_url
-              Write-Host ""
-              Write-Host "🎉🔗  RDP URL: $url"
-              exit 0
-            }
-          } catch {
-            # لسه مفيش API … هنستنى
-          }
-          Start-Sleep -Seconds 1
-        }
-
-        Write-Error "❌  Failed to retrieve ngrok URL within allotted time."
-        exit 1
+      - name: Enable RDP
+        run: |
+          net user kamel123 MyStrong123 /add
+          net localgroup administrators kamel123 /add
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          ./ngrok.exe tcp 3389
